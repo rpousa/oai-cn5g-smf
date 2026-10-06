@@ -714,7 +714,8 @@ bool smf_n2::create_n2_pdu_session_resource_modify_confirm_transfer(
 
   Logger::smf_n2().debug(
       "UL NG-U UP TNL Information: %s, TEID 0x%" PRIx32,
-      conv::toString(ul_fteid.ipv4_address).c_str(), ul_fteid.teid);
+      oai::utils::conv::toString(ul_fteid.ipv4_address).c_str(),
+      ul_fteid.teid);
 
   // TODO: QoS Flow Failed to Modify List
   // TODO: Additional NG-U UP TNL Information
