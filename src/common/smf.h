@@ -42,7 +42,11 @@ enum class session_management_procedures_type_e {
   PDU_SESSION_MODIFICATION_PCF_INITIATED      = 21,
   PDU_SESSION_RELEASE_PCF_INITIATED           = 22,
   DEREGISTRATION_UE_INITIATED                 = 23,
-  PDU_SESSION_TEST                            = 24
+  PDU_SESSION_TEST                            = 24,
+  /* The NG-RAN moved the downlink N3 endpoint by itself and told the core
+   * about it with a PDU Session Resource Modify Indication. A change of
+   * gNB-CU-UP (clause 8.9.5 of TS 38.401) is the case this exists for. */
+  PDU_SESSION_MODIFICATION_AN_INDICATED       = 25
 };
 
 static const std::vector<std::string> session_management_procedures_type_e2str =
@@ -69,7 +73,12 @@ static const std::vector<std::string> session_management_procedures_type_e2str =
      "N2_HO_CANCELLATION_PHASE",
      "PDU_SESSION_MODIFICATION_PCF_INITIATED",
      "PDU_SESSION_RELEASE_PCF_INITIATED",
-     "PDU_SESSION_TEST"
+     /* this vector is indexed with the enum above, so it has to carry every
+      * value: DEREGISTRATION_UE_INITIATED was missing, which shifted
+      * PDU_SESSION_TEST and left the last entry out of range */
+     "DEREGISTRATION_UE_INITIATED",
+     "PDU_SESSION_TEST",
+     "PDU_SESSION_MODIFICATION_AN_INDICATED"
 
 };
 

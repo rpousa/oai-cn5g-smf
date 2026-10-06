@@ -642,6 +642,105 @@ bool smf_n2::create_n2_pdu_session_resource_modify_response_transfer(
 }
 
 //------------------------------------------------------------------------------
+int smf_n2::decode_n2_sm_information(
+    std::shared_ptr<PduSessionResourceModifyIndicationTransfer>& ngap_ie,
+    const std::string& n2_sm_info) {
+  Logger::smf_n2().info(
+      "Decode NGAP message (PDUSessionResourceModifyIndicationTransfer) "
+      "from N2 SM Information");
+
+  int result            = KEncodeDecodeOK;
+  unsigned int data_len = n2_sm_info.length();
+  unsigned char* data   = (unsigned char*) malloc(data_len + 1);
+  memset(data, 0, data_len + 1);
+  memcpy((void*) data, (void*) n2_sm_info.c_str(), data_len);
+
+  if (!ngap_ie->decode(data, data_len)) {
+    Logger::smf_n2().warn(
+        "Decode PDUSessionResourceModifyIndicationTransfer failed");
+    result = KEncodeDecodeError;
+  }
+  // free memory
+  oai::utils::utils::free_wrapper((void**) &data);
+
+  return result;
+}
+
+//------------------------------------------------------------------------------
+bool smf_n2::create_n2_pdu_session_resource_modify_confirm_transfer(
+    pdu_session_update_sm_context_response& sm_context_res,
+    n2_sm_info_type_e ngap_info_type, std::string& ngap_msg_str) {
+  Logger::smf_n2().debug(
+      "Create N2 SM Information: NGAP PDU Session Resource Modify Confirm "
+      "Transfer IE");
+  bool result = false;
+
+  PduSessionResourceModifyConfirmTransfer modify_confirm = {};
+
+  std::map<uint8_t, qos_flow_context_updated> qos_flows = {};
+  sm_context_res.get_all_qos_flow_context_updateds(qos_flows);
+  if (qos_flows.empty()) {
+    Logger::smf_n2().warn(
+        "No QoS flow to confirm, cannot build the Modify Confirm Transfer");
+    return false;
+  }
+
+  /* QoS Flow Modify Confirm List (mandatory): every flow whose downlink
+   * endpoint the core has accepted. */
+  std::vector<QosFlowModifyConfirmItem> confirm_items = {};
+  for (const auto& it : qos_flows) {
+    QosFlowModifyConfirmItem item = {};
+    QosFlowIdentifier qos_flow_id = {};
+    qos_flow_id.set(it.first);
+    item.setQosFlowIdentifier(qos_flow_id);
+    confirm_items.push_back(item);
+    Logger::smf_n2().debug("QoS Flow Modify Confirm, QFI %d", it.first);
+  }
+  modify_confirm.setQosFlowModifyConfirmList(confirm_items);
+
+  /* UL NG-U UP TNL Information (mandatory): the uplink endpoint at the UPF.
+   * A change of gNB-CU-UP does not move it -- the NG-RAN asked us to change
+   * where downlink goes, not where it should send uplink -- so this is the
+   * same F-TEID the session already has, echoed back as the spec requires. */
+  pfcp::fteid_t ul_fteid = qos_flows.begin()->second.ul_fteid;
+
+  UpTransportLayerInformation ul_ng_u_up_tnl_information = {};
+  TransportLayerAddress transport_layer_address          = {};
+  GtpTeid gtp_teid                                       = {};
+  transport_layer_address.setIpv4Address(ul_fteid.ipv4_address);
+  gtp_teid.set(ul_fteid.teid);
+  ul_ng_u_up_tnl_information.set(transport_layer_address, gtp_teid);
+  modify_confirm.setUlNgUUpTnlInformation(ul_ng_u_up_tnl_information);
+
+  Logger::smf_n2().debug(
+      "UL NG-U UP TNL Information: %s, TEID 0x%" PRIx32,
+      conv::toString(ul_fteid.ipv4_address).c_str(), ul_fteid.teid);
+
+  // TODO: QoS Flow Failed to Modify List
+  // TODO: Additional NG-U UP TNL Information
+
+  uint8_t buffer[BUF_LEN];
+  int encoded_size = modify_confirm.encode(buffer, BUF_LEN);
+
+  if (encoded_size < 0) {
+    Logger::smf_n2().warn(
+        "NGAP PDU Session Resource Modify Confirm Transfer encode failed "
+        "(encode size %d)",
+        encoded_size);
+    result = false;
+  } else {
+    oai::utils::output_wrapper::print_buffer(
+        {}, "N2 SM Buffer Data:", buffer, encoded_size);
+
+    std::string ngap_message((char*) buffer, encoded_size);
+    ngap_msg_str = ngap_message;
+    result       = true;
+  }
+
+  return result;
+}
+
+//------------------------------------------------------------------------------
 bool smf_n2::create_n2_path_switch_request_ack(
     pdu_session_update_sm_context_response& sm_context_res,
     n2_sm_info_type_e ngap_info_type, std::string& ngap_msg_str) {

@@ -17,6 +17,8 @@
 #include "HandoverResourceAllocationUnsuccessfulTransfer.hpp"
 #include "PathSwitchRequestAcknowledgeTransfer.hpp"
 #include "PathSwitchRequestTransfer.hpp"
+#include "PduSessionResourceModifyConfirmTransfer.hpp"
+#include "PduSessionResourceModifyIndicationTransfer.hpp"
 #include "PduSessionResourceModifyRequestTransfer.hpp"
 #include "PduSessionResourceModifyResponseTransfer.hpp"
 #include "PduSessionResourceReleaseCommandTransfer.hpp"
@@ -203,6 +205,15 @@ class smf_n2 {
       const oai::ngap::Cause& cause, n2_sm_info_type_e ngap_info_type,
       std::string& ngap_msg_str);
 
+  /*
+   * Create a PDU Session Resource Modify Confirm Transfer, the answer to a
+   * Modify Indication: it carries the uplink N3 endpoint, which has not moved,
+   * so the NG-RAN keeps sending uplink where it already does.
+   */
+  bool create_n2_pdu_session_resource_modify_confirm_transfer(
+      pdu_session_update_sm_context_response& sm_context_res,
+      n2_sm_info_type_e ngap_info_type, std::string& ngap_msg_str);
+
   bool create_n2_path_switch_request_ack(
       pdu_session_update_sm_context_response& sm_context_res,
       n2_sm_info_type_e ngap_info_type, std::string& ngap_msg_str);
@@ -267,6 +278,21 @@ class smf_n2 {
    */
   int decode_n2_sm_information(
       std::shared_ptr<oai::ngap::PduSessionResourceSetupUnsuccessfulTransfer>&
+          ngap_ie,
+      const std::string& n2_sm_info);
+
+  /*
+   * Decode a PDU Session Resource Modify Indication Transfer, which the NG-RAN
+   * sends when it has moved the downlink N3 endpoint of a session on its own
+   * (e.g. a change of gNB-CU-UP, TS 38.401 8.9.5) and needs the core to send
+   * downlink to the new one.
+   * @param [std::shared_ptr<PduSessionResourceModifyIndicationTransfer>&]
+   * ngap_ie Store decoded NGAP message
+   * @param [const std::string&] n2_sm_info N2 SM Information
+   * @return status of the decode process
+   */
+  int decode_n2_sm_information(
+      std::shared_ptr<oai::ngap::PduSessionResourceModifyIndicationTransfer>&
           ngap_ie,
       const std::string& n2_sm_info);
 

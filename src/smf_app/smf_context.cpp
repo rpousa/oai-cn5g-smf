@@ -2444,6 +2444,28 @@ bool smf_context::handle_pdu_session_update_sm_context_request(
         pdu_session_release_procedure = true;
       } break;
 
+      // NG-RAN moved the downlink N3 endpoint by itself
+      case n2_sm_info_type_e::PDU_RES_MOD_IND: {
+        // PDU Session Resource Modify Indication (Section 8.2.3@3GPP TS
+        // 38.413): the NG-RAN tells the core that downlink for this session
+        // must go to a new endpoint. A change of gNB-CU-UP (TS 38.401 8.9.5)
+        // is the case this exists for. The UPF is unchanged, so only its
+        // downlink F-TEID is updated -- no UPF re-selection.
+
+        Logger::smf_app().info(
+            "PDU Session Resource Modify Indication, processing N2 SM "
+            "Information");
+        procedure_type = session_management_procedures_type_e::
+            PDU_SESSION_MODIFICATION_AN_INDICATED;
+
+        if (!handle_pdu_res_mod_ind(
+                n2_sm_information, smreq, sm_context_resp_pending, sp)) {
+          return false;
+        }
+        // need to update UPF accordingly
+        update_upf = true;
+      } break;
+
       // Xn Handover
       case n2_sm_info_type_e::PATH_SWITCH_REQ: {
         // Xn based inter NG-RAN handover (Section 4.9.1.2@3GPP TS 23.502
@@ -3260,6 +3282,94 @@ void smf_context::handle_pdu_session_modification_network_requested(
         "Could not send ITTI message %s to task TASK_SMF_SBI",
         itti_msg->get_msg_name());
   }
+}
+
+//-------------------------------------------------------------------------------------
+bool smf_context::handle_pdu_res_mod_ind(
+    std::string& n2_sm_information,
+    std::shared_ptr<itti_sbi_update_sm_context_request>& sm_context_request,
+    std::shared_ptr<itti_sbi_update_sm_context_response>& sm_context_resp,
+    std::shared_ptr<smf_pdu_session>& sp) {
+  // PDUSessionResourceModifyIndicationTransfer
+  std::shared_ptr<PduSessionResourceModifyIndicationTransfer> decoded_msg =
+      std::make_shared<PduSessionResourceModifyIndicationTransfer>();
+  int decode_status = smf_n2::get_instance().decode_n2_sm_information(
+      decoded_msg, n2_sm_information);
+  if (decode_status == KEncodeDecodeError) {
+    Logger::smf_app().warn(
+        "Decode N2 SM (Ngap_PDUSessionResourceModifyIndicationTransfer) "
+        "failed!");
+    smf_app_inst->trigger_update_context_error_response(
+        http_status_code::FORBIDDEN,
+        PDU_SESSION_APPLICATION_ERROR_N2_SM_ERROR,
+        sm_context_request.get()->pid);
+    return false;
+  }
+
+  /* DL QoS Flow per TNL Information (mandatory): the endpoint the NG-RAN wants
+   * downlink sent to from now on, plus the flows it applies to. */
+  QosFlowPerTnlInformation dl_qos_flow_per_tnl_information = {};
+  decoded_msg->getDlQosFlowPerTnlInformation(dl_qos_flow_per_tnl_information);
+
+  UpTransportLayerInformation dl_up_tnl_information = {};
+  AssociatedQosFlowList associated_qos_flow_list    = {};
+  dl_qos_flow_per_tnl_information.get(
+      dl_up_tnl_information, associated_qos_flow_list);
+
+  pfcp::fteid_t dl_teid                         = {};
+  TransportLayerAddress transport_layer_address = {};
+  GtpTeid gtp_teid                              = {};
+  dl_up_tnl_information.get(transport_layer_address, gtp_teid);
+  std::optional<struct in_addr> ipv4_addr_opt =
+      transport_layer_address.getIpv4Address();
+  if (!ipv4_addr_opt.has_value()) {
+    Logger::smf_app().warn(
+        "PDU Session Resource Modify Indication carries no IPv4 downlink "
+        "endpoint, ignoring it");
+    smf_app_inst->trigger_update_context_error_response(
+        http_status_code::FORBIDDEN,
+        PDU_SESSION_APPLICATION_ERROR_N2_SM_ERROR,
+        sm_context_request.get()->pid);
+    return false;
+  }
+  dl_teid.ipv4_address = ipv4_addr_opt.value();
+  gtp_teid.get(dl_teid.teid);
+  dl_teid.v4 = 1;  // Only V4 for now
+  sm_context_request.get()->req.set_dl_fteid(dl_teid);
+
+  Logger::smf_app().info(
+      "PDU Session Resource Modify Indication: downlink moves to %s, TEID "
+      "0x%" PRIx32,
+      conv::toString(dl_teid.ipv4_address).c_str(), dl_teid.teid);
+
+  // Associated QoS Flow List: the flows that move with it
+  std::vector<oai::ngap::AssociatedQosFlowItem> associated_qos_flow_items;
+  associated_qos_flow_list.get(associated_qos_flow_items);
+  if (associated_qos_flow_items.empty()) {
+    Logger::smf_app().warn(
+        "PDU Session Resource Modify Indication carries no associated QoS "
+        "flow, ignoring it");
+    smf_app_inst->trigger_update_context_error_response(
+        http_status_code::FORBIDDEN,
+        PDU_SESSION_APPLICATION_ERROR_N2_SM_ERROR,
+        sm_context_request.get()->pid);
+    return false;
+  }
+  for (const auto& flow_item : associated_qos_flow_items) {
+    QosFlowIdentifier qos_flow_identifier = {};
+    flow_item.getQosFlowIdentifier(qos_flow_identifier);
+    pfcp::qfi_t qfi((uint8_t) (qos_flow_identifier.get()));
+    sm_context_request.get()->req.add_qfi(qfi);
+    Logger::smf_app().debug(
+        "Associated QoS Flow List, QFI %d",
+        (uint8_t) (qos_flow_identifier.get()));
+  }
+
+  // TODO: Additional DL QoS Flow per TNL Information
+  // TODO: Secondary RAT Usage Information
+  // TODO: Security Result
+
+  return true;
 }
 
 //-------------------------------------------------------------------------------------
@@ -4972,6 +5082,25 @@ void smf_context::send_pdu_session_update_response(
         Logger::smf_app().info(
             "PDU Session Modification UE-initiated (Step 3)");
         sps->deallocate_ressources(resp->res.get_dnn());
+      } break;
+
+      case session_management_procedures_type_e::
+          PDU_SESSION_MODIFICATION_AN_INDICATED: {
+        // Create N2 SM Information: PDU Session Resource Modify Confirm
+        // Transfer IE
+
+        smf_n2::get_instance()
+            .create_n2_pdu_session_resource_modify_confirm_transfer(
+                resp->res, n2_sm_info_type_e::PDU_RES_MOD_CFM, n2_sm_info);
+
+        conv::convert_string_2_hex(n2_sm_info, n2_sm_info_hex);
+        resp->res.set_n2_sm_information(n2_sm_info_hex);
+
+        // fill the content of SmContextUpdatedData
+        nlohmann::json json_data           = {};
+        json_data["n2SmInfo"]["contentId"] = N2_SM_CONTENT_ID;
+        json_data["n2SmInfoType"] = "PDU_RES_MOD_CFM";  // NGAP message
+        resp->res.set_json_data(json_data);
       } break;
 
       case session_management_procedures_type_e::HO_PATH_SWITCH_REQ: {

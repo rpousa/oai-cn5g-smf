@@ -1649,6 +1649,13 @@ smf_procedure_code session_update_sm_context_procedure::run(
       return send_n4_session_modification_request(list_of_qfis_to_be_modified);
     }
 
+    /* A change of gNB-CU-UP (TS 38.401 8.9.5) looks to the core exactly like
+     * an Xn path switch: the NG-RAN has moved the downlink N3 endpoint and
+     * nothing else about the session changed, so the same Update FAR / PDR
+     * handling applies. Without this case the procedure type falls into
+     * default: below and no N4 message is ever sent. */
+    case session_management_procedures_type_e::
+        PDU_SESSION_MODIFICATION_AN_INDICATED:
     case session_management_procedures_type_e::HO_PATH_SWITCH_REQ:
     case session_management_procedures_type_e::N2_HO_PREPARATION_PHASE_STEP2: {
       for (const auto& dl_edge : dl_edges_to_update) {
@@ -1973,6 +1980,10 @@ smf_procedure_code session_update_sm_context_procedure::handle_itti_msg(
        * we only change the first UPF
        */
     } break;
+    /* see the note on the same group above: only the first UPF's downlink
+     * endpoint moved, so there is no next UPF to walk to. */
+    case session_management_procedures_type_e::
+        PDU_SESSION_MODIFICATION_AN_INDICATED:
     case session_management_procedures_type_e::HO_PATH_SWITCH_REQ:
     case session_management_procedures_type_e::N2_HO_PREPARATION_PHASE_STEP2: {
       std::vector<pfcp::qfi_t> used_qfis = associate_fteid_with_created_pdrs(

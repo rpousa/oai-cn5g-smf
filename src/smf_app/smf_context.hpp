@@ -712,6 +712,26 @@ class smf_context : public std::enable_shared_from_this<smf_context> {
       std::shared_ptr<smf_pdu_session>& sp);
 
   /*
+   * Handle a PDU Session Resource Modify Indication from the NG-RAN: it has
+   * moved the downlink N3 endpoint of this session by itself (a change of
+   * gNB-CU-UP, TS 38.401 8.9.5) and the core has to send downlink to the new
+   * one. The UPF does not change -- only its downlink F-TEID -- so this is the
+   * same shape as the Xn path switch below, without any UPF re-selection.
+   * @param [std::string&] n2_sm_information: NGAP message in form of string
+   * @param [std::shared_ptr<itti_sbi_update_sm_context_request>&]
+   * sm_context_request: Request message
+   * @param [std::shared_ptr<itti_sbi_update_sm_context_response>&]
+   * sm_context_resp: Response message
+   * @param [std::shared_ptr<smf_pdu_session>&] sp: PDU session
+   * @return True if handle successful, otherwise return false
+   */
+  bool handle_pdu_res_mod_ind(
+      std::string& n2_sm_information,
+      std::shared_ptr<itti_sbi_update_sm_context_request>& sm_context_request,
+      std::shared_ptr<itti_sbi_update_sm_context_response>& sm_context_resp,
+      std::shared_ptr<smf_pdu_session>& sp);
+
+  /*
    * Handle Xn Handover Patch Switch Request
    * @param [std::shared_ptr<itti_sbi_update_sm_context_request>&]
    * sm_context_request: Request message
