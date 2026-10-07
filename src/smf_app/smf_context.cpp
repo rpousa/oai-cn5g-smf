@@ -3356,8 +3356,11 @@ bool smf_context::handle_pdu_res_mod_ind(
     return false;
   }
   for (const auto& flow_item : associated_qos_flow_items) {
+    /* AssociatedQosFlowItem exposes its QFI through a plain get(); the
+     * two-argument overload would also hand back the optional QoS Flow
+     * Mapping Indication, which this procedure has no use for. */
     QosFlowIdentifier qos_flow_identifier = {};
-    flow_item.getQosFlowIdentifier(qos_flow_identifier);
+    flow_item.get(qos_flow_identifier);
     pfcp::qfi_t qfi((uint8_t) (qos_flow_identifier.get()));
     sm_context_request.get()->req.add_qfi(qfi);
     Logger::smf_app().debug(
