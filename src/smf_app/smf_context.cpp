@@ -3335,6 +3335,24 @@ bool smf_context::handle_pdu_res_mod_ind(
   dl_teid.ipv4_address = ipv4_addr_opt.value();
   gtp_teid.get(dl_teid.teid);
   dl_teid.v4 = 1;  // Only V4 for now
+
+  /* 0.0.0.0 decodes as a perfectly valid IPv4 address, so has_value() above
+   * does not catch an unspecified endpoint, and a zero TEID is not a usable
+   * GTP-U tunnel either. Taking one would reprogram the UPF's FAR to a
+   * destination that cannot be reached and silently black-hole the downlink
+   * for the rest of the session, which is worse than refusing the message. */
+  if (dl_teid.ipv4_address.s_addr == 0 || dl_teid.teid == 0) {
+    Logger::smf_app().warn(
+        "PDU Session Resource Modify Indication carries an unusable downlink "
+        "endpoint (%s, TEID 0x%" PRIx32 "), ignoring it",
+        conv::toString(dl_teid.ipv4_address).c_str(), dl_teid.teid);
+    smf_app_inst->trigger_update_context_error_response(
+        http_status_code::FORBIDDEN,
+        PDU_SESSION_APPLICATION_ERROR_N2_SM_ERROR,
+        sm_context_request.get()->pid);
+    return false;
+  }
+
   sm_context_request.get()->req.set_dl_fteid(dl_teid);
 
   Logger::smf_app().info(
