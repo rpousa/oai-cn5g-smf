@@ -5110,9 +5110,21 @@ void smf_context::send_pdu_session_update_response(
         // Create N2 SM Information: PDU Session Resource Modify Confirm
         // Transfer IE
 
-        smf_n2::get_instance()
-            .create_n2_pdu_session_resource_modify_confirm_transfer(
-                resp->res, n2_sm_info_type_e::PDU_RES_MOD_CFM, n2_sm_info);
+        /* Honour the result. Announcing a Confirm whose transfer could not be
+         * built is worse than failing: the NG-RAN completes the change of
+         * gNB-CU-UP and silently discards the endpoint the core just
+         * confirmed ("undecodable transfer"), so the failure surfaces as one
+         * RAN warning in an otherwise clean run. */
+        if (!smf_n2::get_instance()
+                 .create_n2_pdu_session_resource_modify_confirm_transfer(
+                     resp->res, n2_sm_info_type_e::PDU_RES_MOD_CFM,
+                     n2_sm_info)) {
+          Logger::smf_app().error(
+              "Could not build the PDU Session Resource Modify Confirm "
+              "Transfer, rejecting the Update SM Context");
+          resp->res.set_http_code(http_status_code::INTERNAL_SERVER_ERROR);
+          break;
+        }
 
         conv::convert_string_2_hex(n2_sm_info, n2_sm_info_hex);
         resp->res.set_n2_sm_information(n2_sm_info_hex);
